@@ -40,21 +40,6 @@ const registerUser = asyncHandler(async (req, res) => {
         );
 });
 
-const generateAccessRefreshTokens = async (userId) => {
-    try {
-        const user = await User.findById(userId);
-        const refreshToken = user.generateRefreshToken();
-        const accessToken = user.generateAccessToken();
-
-        user.refreshToken = refreshToken;
-        await user.save({ ValidateBeforeSave: false });
-
-        return { accessToken, refreshToken };
-    } catch (error) {
-        throw new ApiError("Something Went Wrong While Generation of Token");
-    }
-};
-
 const loginUser = asyncHandler( async (req, res) => {
     const { username, email, password } = req.body;
 
@@ -79,110 +64,56 @@ const loginUser = asyncHandler( async (req, res) => {
         throw new ApiError(401, "Invalid Password.");
     }
 
-    // generation token
-    const { accessToken, refreshToken } = await generateAccessRefreshTokens(
-        userFound._id
-    );
+    const token = jwt.sign({ id: userFound._id }, process.env.TOKEN_SECRET, {
+        expiresIn: '7d'
+    });
 
     const user = await User.findById(userFound._id).select(
-        "-password -refreshToken"
+        "-password"
     );
-
-    // making cookie not modifiable
-    const options = {
-        httpOnly: true,
-        secure: true,
-    };
 
     return res
         .status(200)
-        .cookie("accessToken", accessToken, options)
-        .cookie("refreshToken", refreshToken, options)
         .json(
             new ApiResponse(
                 200,
-                { user: user, accessToken, refreshToken },
+                { user: user, token },
                 "Logged In Successfully."
             )
         );
 });
 
 const logoutUser = asyncHandler( async (req, res) => {
-    await User.findByIdAndUpdate(
-        req.user._id,
-        {
-            $unset: {
-                refreshToken: 1
-            },
-        },
-        {
-            new: true
-        }
-    );
-
-    const options = {
-        httpOnly: true,
-        secure: true
-    };
-
     return res
         .status(200)
-        .clearCookie("accessToken", options)
-        .clearCookie("refreshToken", options)
         .json(
             new ApiResponse(
                 200,
-                {},
-                "User Logged Out !"
+                { token: null },
+                "Logged Out Successfully."
             )
         );
 });
 
-const refreshAccessToken = asyncHandler(async (req, res) => {
-    const incomingRefreshToken =
-        req.cookies.refreshToken || res.body.refreshToken;
-    if (!incomingRefreshToken) {
-        throw new ApiError(401, "Unauthorized Request.");
+const dashboard = asyncHandler( async (req, res) => {
+    const token = req.headers['authorization'];
+    if (!token) {
+        throw new ApiError(404, "Token Not Found.");
     }
-
     try {
-        const decodedToken = jwt.verify(
-            incomingRefreshToken,
-            process.env.REFRESH_TOKEN_SECRET
-        );
-
-        const user = await User.findById(decodedToken?._id);
-        if (!user) {
-            throw new ApiError("Invalid Refresh Token.");
-        }
-
-        if (incomingRefreshToken !== user?.refreshToken) {
-            throw new ApiError(401, "Refresh Token Is Expired.");
-        }
-
-        const options = {
-            httpOnly: true,
-            secure: true,
-        };
-
-        const newToken = await generateAccessRefreshTokens(user._id);
-
+        const verified = jwt.verify(token, process.env.TOKEN_SECRET);
+        const user = await User.findById(verified.id).select('-password');
         return res
             .status(200)
-            .cookie("accessToken", newToken.accessToken, options)
-            .cookie("refreshToken", newToken.refreshToken, options)
             .json(
                 new ApiResponse(
                     200,
-                    {
-                        accessToken: newToken.accessToken,
-                        refreshToken: newToken.refreshToken,
-                    },
-                    "Access Token Refreshed."
+                    { user: user },
+                    "User Found."
                 )
-            );
+            )
     } catch (error) {
-        throw new ApiError(401, error?.message || "Invalid Refresh Token.");
+        throw new ApiError(404, "User Not Found.");
     }
 });
 
@@ -190,5 +121,5 @@ export {
     registerUser,
     loginUser,
     logoutUser,
-    refreshAccessToken
+    dashboard
 };
