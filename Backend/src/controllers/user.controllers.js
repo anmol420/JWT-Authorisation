@@ -83,6 +83,7 @@ const loginUser = asyncHandler( async (req, res) => {
         );
 });
 
+// optional route
 const logoutUser = asyncHandler( async (req, res) => {
     return res
         .status(200)
@@ -108,7 +109,7 @@ const dashboard = asyncHandler( async (req, res) => {
             .json(
                 new ApiResponse(
                     200,
-                    { user: user },
+                    { user },
                     "User Found."
                 )
             )
